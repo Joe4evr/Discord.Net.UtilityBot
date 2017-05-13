@@ -2,10 +2,14 @@
 using Discord.Addons.InteractiveCommands;
 using Discord.Commands;
 using Discord.WebSocket;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Serilog.Extensions.Logging;
 using System;
 using System.Threading.Tasks;
 using UtilityBot.Services.Configuration;
+using UtilityBot.Services.Data;
 using UtilityBot.Services.GitHub;
 using UtilityBot.Services.Logging;
 using UtilityBot.Services.Tags;
@@ -46,16 +50,27 @@ namespace UtilityBot
 
         private IServiceProvider ConfigureServices()
         {
+            // Configure logging
+            var logger = LogAdaptor.CreateLogger();
+            var loggerFactory = new LoggerFactory();
+            loggerFactory.AddProvider(new SerilogLoggerProvider(logger));
+            // Configure services
             var services = new ServiceCollection()
                 .AddSingleton(_client)
                 .AddSingleton(_config)
                 .AddSingleton(new CommandService(new CommandServiceConfig { CaseSensitiveCommands = false, ThrowOnError = false}))
-                .AddSingleton(LogAdaptor.CreateLogger())
+                .AddSingleton(logger)
                 .AddSingleton<LogAdaptor>()
                 .AddSingleton<InteractiveService>()
                 .AddSingleton<TagService>()
-                .AddSingleton<GitHubService>();
-            var provider = new DefaultServiceProviderFactory().CreateServiceProvider(services);
+                .AddSingleton<GitHubService>()
+                .AddDbContext<TagContext>(options =>
+                {
+                    options
+                        .UseNpgsql(_config.Database.ConnectionString)
+                        .UseLoggerFactory(loggerFactory);
+                });
+            var provider = services.BuildServiceProvider();
             // Autowire and create these dependencies now
             provider.GetService<LogAdaptor>();
             provider.GetService<TagService>();

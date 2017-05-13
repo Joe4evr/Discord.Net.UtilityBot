@@ -2,10 +2,12 @@
 using Discord.Addons.EmojiTools;
 using Discord.Addons.InteractiveCommands;
 using Discord.Commands;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
 using UtilityBot.Preconditions;
+using UtilityBot.Services.Data;
 using UtilityBot.Services.Tags;
 
 namespace UtilityBot.Modules.Tags
@@ -14,11 +16,13 @@ namespace UtilityBot.Modules.Tags
     {
         private readonly TagService _service;
         private readonly InteractiveService _interactive;
+        private readonly TagContext _tags;
 
-        public TagModule(TagService service, InteractiveService interactive)
+        public TagModule(TagService service, InteractiveService interactive, TagContext database)
         {
             _service = service;
             _interactive = interactive;
+            _tags = database;
         }
 
         [Command("tag create", RunMode = RunMode.Async)]
@@ -43,12 +47,12 @@ namespace UtilityBot.Modules.Tags
             if (contentResponse.Content == "cancel") return;
             string content = contentResponse.Content;
 
-            var tag = new Tag
+            var tag = new TagInfo
             {
                 Name = name,
-                Aliases = aliases.ToList(),
+                Aliases = aliases.Select(x => new AliasInfo { Trigger = x }).ToList(),
                 Content = content,
-                OwnerId = Context.User.Id,
+                OwnerId = (long) Context.User.Id,
             };
 
             var embed = new EmbedBuilder()
@@ -70,7 +74,7 @@ namespace UtilityBot.Modules.Tags
         [RequireElevatedUser]
         public async Task RemoveTagAsync([Remainder] string name)
         {
-            var tag = _service.Database.Tags.FirstOrDefault(t => t.Name == name || t.Aliases.Contains(name));
+            var tag = _tags.Tags.Include(t => t.Aliases).FirstOrDefault(t => t.Name == name || t.Aliases.Any(a => a.Trigger == name));
             if (tag == null)
             {
                 await ReplyAsync("**No tags found.**");
@@ -92,7 +96,7 @@ namespace UtilityBot.Modules.Tags
         [RequireElevatedUser]
         public async Task ModifyTagAsync(ModifyType modify, [Remainder] string name)
         {
-            var tag = _service.Database.Tags.FirstOrDefault(t => t.Name == name || t.Aliases.Contains(name));
+            var tag = _tags.Tags.Include(t => t.Aliases).FirstOrDefault(t => t.Name == name || t.Aliases.Any(a => a.Trigger == name));
             if (tag == null)
             {
                 await ReplyAsync("**No tags found.**");
@@ -117,7 +121,7 @@ namespace UtilityBot.Modules.Tags
                         string[] aliases = new string[0];
                         if (aliasResponse.Content != "none")
                             aliases = aliasResponse.Content.Split(';');
-                        tag.Aliases = aliases.ToList();
+                        tag.Aliases = aliases.Select(x => new AliasInfo { Trigger = x, Tag = tag }).ToList();
                         break;
                     }
                 case ModifyType.Body:
@@ -131,7 +135,7 @@ namespace UtilityBot.Modules.Tags
                     }
             }
 
-            _service.Database.Save();
+            await _tags.SaveChangesAsync();
             await _service.BuildCommands();
             await ReplyAsync(EmojiExtensions.FromText(":ok:").Name);
         }
@@ -141,7 +145,7 @@ namespace UtilityBot.Modules.Tags
         [RequireElevatedUser]
         public async Task SetTagAsync(ModifyType modify, string name, [Remainder] string value)
         {
-            var tag = _service.Database.Tags.FirstOrDefault(t => t.Name == name || t.Aliases.Contains(name));
+            var tag = _tags.Tags.Include(t => t.Aliases).FirstOrDefault(t => t.Name == name || t.Aliases.Any(a => a.Trigger == name));
             if (tag == null)
             {
                 await ReplyAsync("**No tags found.**");
@@ -157,7 +161,7 @@ namespace UtilityBot.Modules.Tags
                     }
                 case ModifyType.Alias:
                     {
-                        tag.Aliases = value.Split(';').ToList();
+                        tag.Aliases = value.Split(';').Select(x => new AliasInfo { Trigger = x, Tag = tag }).ToList();
                         break;
                     }
                 case ModifyType.Body:
@@ -166,7 +170,7 @@ namespace UtilityBot.Modules.Tags
                         break;
                     }
             }
-            _service.Database.Save();
+            await _tags.SaveChangesAsync();
             await _service.BuildCommands();
             await ReplyAsync(EmojiExtensions.FromText(":ok:").Name);
         }
@@ -175,7 +179,7 @@ namespace UtilityBot.Modules.Tags
         [Priority(1000)]
         public async Task GetTagAsync([Remainder] string name)
         {
-            var tag = _service.Database.Tags.FirstOrDefault(t => t.Name == name || t.Aliases.Contains(name));
+            var tag = _tags.Tags.Include(t => t.Aliases).FirstOrDefault(t => t.Name == name || t.Aliases.Any(a => a.Trigger == name));
             if (tag == null)
             {
                 await ReplyAsync("**No tags found.**");
@@ -209,7 +213,7 @@ namespace UtilityBot.Modules.Tags
         [Priority(1000)]
         public async Task ListTagsAsync()
         {
-            await ReplyAsync($"**Tags:** {string.Join(", ", _service.Database.Tags.Select(t => t.Name))}");
+            await ReplyAsync($"**Tags:** {string.Join(", ", _tags.Tags.Select(t => t.Name))}");
         }
 
         public enum ModifyType

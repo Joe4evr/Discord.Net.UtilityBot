@@ -42,6 +42,24 @@ namespace UtilityBot.Services.Configuration
             }
         };
 
+        public class ConfigDatabase
+        {
+            [JsonProperty("host")]
+            public string Host { get; set; }
+            [JsonProperty("port")]
+            public int Port { get; set; } = 5432;
+            [JsonProperty("db")]
+            public string Db { get; set; }
+            [JsonProperty("user")]
+            public string Username { get; set; }
+            [JsonProperty("password")]
+            public string Password { get; set; }
+            [JsonIgnore]
+            public string ConnectionString => $"Host={Host};Port={Port};Username={Username};Password={Password};Database={Db}";
+        }
+        [JsonProperty("db")]
+        public ConfigDatabase Database { get; set; }
+
         public static Config Load()
         {
             if (File.Exists("config.json"))
@@ -52,6 +70,17 @@ namespace UtilityBot.Services.Configuration
             var config = new Config();
             config.Save();
             throw new InvalidOperationException("configuration file created; insert token and restart.");
+        }
+        public static Config LoadFrom(string path)
+        {
+            path = Path.Combine(path, "config.json");
+            if (File.Exists(path))
+            {
+                var json = File.ReadAllText(path);
+                return JsonConvert.DeserializeObject<Config>(json);
+            }
+            else
+                throw new FileNotFoundException("Config needs to be present!");
         }
 
         public void Save()
